@@ -92,15 +92,29 @@ export const handler: Handler = async (event) => {
         await supabase.from('user_states').update({ is_human_mode: false }).eq('line_user_id', userId);
       }
 
-      // 5. 呼叫 AI
-      if (!settings.is_ai_enabled) continue;
+      // 5. 呼叫 AI// 在 event.map 迴圈內，處理文字訊息的地方：
+if (event.type === 'message' && event.message.type === 'text') {
+  const userText = event.message.text;
+  const userId = event.source.userId;
+  const replyToken = event.replyToken;
 
-      let aiResult = '';
-      try {
-        if (settings.active_ai === 'gpt') aiResult = (await callGPT(settings, userMessage)).text;
-        else aiResult = await callGemini(settings, userMessage);
-      } catch (e: any) {
-        aiResult = `❌ AI 錯誤：\n${e.message}`;
+  try {
+    // 這裡我們只准它呼叫 callDify
+    // 確保你檔案上方有定義好 async function callDify(...)
+    const aiResponse = await callDify(settings, userText, userId);
+
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: aiResponse
+    });
+  } catch (err) {
+    console.error('系統錯誤:', err);
+    await client.replyMessage(replyToken, {
+      type: 'text',
+      text: `❌ AI 服務暫時不可用，請檢查 Dify 設定。`
+    });
+  }
+}
       }
 
       if (aiResult) {
