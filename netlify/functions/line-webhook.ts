@@ -142,3 +142,27 @@ async function callDify(settings: any, currentMessage: string, userId: string) {
   const result = await response.json();
   return result.answer || 'Dify 沒有回傳答案';
 }
+// --- 找到處理文字訊息的地方，替換成這段 ---
+    if (event.type === 'message' && event.message.type === 'text') {
+      const { text: userText } = event.message;
+      const userId = event.source.userId;
+      const replyToken = event.replyToken;
+
+      try {
+        // 直接呼叫 Dify (我們剛剛寫好的新工人)
+        const aiResponse = await callDify(settings, userText, userId);
+
+        // 透過 LINE 官方工具回傳給用戶
+        await client.replyMessage(replyToken, {
+          type: 'text',
+          text: aiResponse
+        });
+      } catch (err) {
+        console.error('Dify 呼叫失敗:', err);
+        await client.replyMessage(replyToken, {
+          type: 'text',
+          text: '抱歉，系統暫時無法回應，請稍後再試。'
+        });
+      }
+    }
+    // ---------------------------------------
