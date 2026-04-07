@@ -111,65 +111,34 @@ export const handler: Handler = async (event) => {
   return { statusCode: 200, body: 'OK' };
 };
 
-async function callGPT(settings: any, currentMessage: string) {
-  const isGPT5 = settings.gpt_model_name.includes('gpt-5');
-  let fileContent = '';
-  if (settings.reference_file_url) {
-    try { const r = await fetch(settings.reference_file_url); if (r.ok) fileContent = await r.text(); } catch (e) {}
-  }
-  const systemContent = `${settings.system_prompt}\n\n參考文字：\n${settings.reference_text}\n\n檔案內容：\n${fileContent}`;
+async function callDify(settings: any, currentMessage: string, userId: string) {
+  // 從資料庫抓取 Dify 設定，如果沒有設定則報錯
+  const apiKey = settings.dify_api_key;
+  const apiUrl = settings.dify_api_url || 'https://api.dify.ai/v1';
 
-  if (isGPT5) {
-    const body: any = {
-      model: settings.gpt_model_name,
-      input: `System: ${systemContent}\nUser: ${currentMessage}`,
-      reasoning: { effort: settings.gpt_reasoning_effort || 'none' },
-      text: { verbosity: settings.gpt_verbosity || 'medium' }
-    };
-    const res = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${settings.gpt_api_key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    const result: any = await res.json();
-    if (!res.ok || result.error) throw new Error(result.error?.message || res.statusText);
-    return { text: result.output?.text || '' };
+  if (!apiKey) {
+    throw new Error('請在後台設定 Dify API Key');
   }
 
-  const openai = new OpenAI({ apiKey: settings.gpt_api_key });
-  const messages: any[] = [{ role: 'system', content: systemContent }, { role: 'user', content: currentMessage }];
-  const params: any = { model: settings.gpt_model_name, messages };
-  if (settings.gpt_model_name.startsWith('o1') || settings.gpt_model_name.startsWith('o3')) {
-    params.max_completion_tokens = settings.gpt_max_tokens;
-  } else {
-    params.max_tokens = settings.gpt_max_tokens;
-    params.temperature = settings.gpt_temperature;
-  }
-  const completion = await openai.chat.completions.create(params);
-  return { text: completion.choices[0].message.content || '' };
-}
-
-async function callGemini(settings: any, currentMessage: string) {
-  let filePart: any = null;
-  if (settings.reference_file_url) {
-    try {
-      const r = await fetch(settings.reference_file_url);
-      if (r.ok) {
-        const b = await r.arrayBuffer();
-        filePart = { inline_data: { data: Buffer.from(b).toString('base64'), mime_type: settings.reference_file_url.endsWith('.pdf') ? 'application/pdf' : 'text/plain' } };
-      }
-    } catch (e) {}
-  }
-  const userParts: any[] = [{ text: `System: ${settings.system_prompt}\nReference: ${settings.reference_text}` }];
-  if (filePart) userParts.push(filePart);
-  userParts.push({ text: `User: ${currentMessage}` });
-  const contents = [{ role: 'user', parts: userParts }];
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${settings.gemini_model_name}:generateContent?key=${settings.gemini_api_key}`, {
+  const response = await fetch(`${apiUrl}/chat-messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents, generationConfig: { temperature: 1.0, maxOutputTokens: settings.gemini_max_tokens } })
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      "inputs": {}, 
+      "query": currentMessage,
+      "response_mode": "blocking",
+      "user": userId 
+    })
   });
-  const result: any = await res.json();
-  if (!res.ok || result.error) throw new Error(result.error?.message || 'Gemini API Error');
-  return result.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text || '';
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Dify API 呼叫失敗');
+  }
+
+  const result = await response.json();
+  return result.answer || 'Dify 沒有回傳答案';
 }
